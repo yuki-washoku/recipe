@@ -211,35 +211,83 @@ button:disabled{ opacity:.5; cursor:not-allowed; }
 }
 
 .stock-head{
-  display:grid; grid-template-columns:1fr 62px 62px 52px 30px; gap:6px;
+  display:grid; grid-template-columns:1fr 54px 54px 54px 46px 30px; gap:5px;
   font-size:10px; color:var(--ink-soft); padding:0 2px 4px; margin-top:6px;
 }
 .stock-row{
-  display:grid; grid-template-columns:1fr 62px 62px 52px 30px; gap:6px;
+  display:grid; grid-template-columns:1fr 54px 54px 54px 46px 30px; gap:5px;
   align-items:center; margin-bottom:7px;
 }
-.stock-input{ font-size:14px; padding:8px 8px; min-width:0; }
+.stock-input{ font-size:14px; padding:8px 6px; min-width:0; }
+/* The editor has six columns; below ~420px the name gets its own line so the
+   numbers stay wide enough to tap. */
+@media (max-width:420px){
+  .stock-head{ display:none; }
+  .stock-row{
+    grid-template-columns:repeat(4,1fr) 30px;
+    grid-template-areas:'n n n n x' 'q m p u u';
+    gap:6px; padding:8px; margin-bottom:10px;
+    background:var(--indigo-soft); border-radius:8px;
+  }
+  .stock-row input[data-sfield='name']{ grid-area:n; }
+  .stock-row input[data-sfield='qty']{ grid-area:q; }
+  .stock-row input[data-sfield='min']{ grid-area:m; }
+  .stock-row input[data-sfield='par']{ grid-area:p; }
+  .stock-row input[data-sfield='unit']{ grid-area:u; }
+  .stock-row .remove-btn{ grid-area:x; }
+}
+
+/* 一覧 */
+.stock-tools{
+  display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:10px 0 4px;
+}
+.seg{ display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+.seg button{
+  background:#fffefb; border:none; color:var(--ink-soft);
+  font-size:12px; font-weight:700; padding:7px 11px; white-space:nowrap;
+}
+.seg button + button{ border-left:1px solid var(--line); }
+.seg button.on{ background:var(--indigo); color:#fff; }
+.mini-btn.on{ background:var(--indigo); color:#fff; }
 
 .stock-view{ list-style:none; padding:0; margin:0; }
 .stock-view li{
-  display:grid; grid-template-columns:1fr auto auto auto; gap:10px;
-  align-items:center; padding:11px 0; border-bottom:1px dashed var(--line);
+  display:grid; grid-template-columns:1fr 76px 34px auto; gap:8px;
+  align-items:center; padding:10px 2px; border-bottom:1px dashed var(--line);
   font-size:14px;
 }
-.stock-view li.low{ background:#fbf1ee; border-radius:6px; padding:11px 8px; }
+.stock-view li .stock-min{ grid-column:1 / -1; margin-top:-4px; }
+.stock-view li .stock-gap{ grid-column:1 / -1; }
+.stock-view li.low{ background:#fbf1ee; border-radius:8px; padding:10px 8px; }
 .stock-name{ font-weight:700; min-width:0; overflow:hidden; text-overflow:ellipsis; }
-.stock-qty{ font-family:'JetBrains Mono',monospace; font-weight:700; }
-.stock-view li.low .stock-qty{ color:var(--clay); }
-.stock-min{ font-size:11px; color:var(--ink-soft); white-space:nowrap; }
-.stock-adj{ display:flex; gap:4px; }
-.stock-adj button{
-  width:32px; height:32px; padding:0; border-radius:6px; border:1px solid var(--line);
-  background:#fffefb; color:var(--indigo); font-size:16px; font-weight:700;
+.stock-qty{ font-family:'JetBrains Mono',monospace; font-weight:700; font-size:16px; }
+.stock-qty-input,.stock-count{
+  font-family:'JetBrains Mono',monospace; font-weight:700; font-size:16px;
+  text-align:right; padding:9px 8px; border:1px solid var(--line);
+  border-radius:8px; background:#fffefb; width:100%; min-width:0;
 }
+.stock-qty-input:focus,.stock-count:focus{ border-color:var(--indigo); outline:none; }
+.stock-view li.low .stock-qty,.stock-view li.low .stock-qty-input{ color:var(--clay); }
+.stock-unit{ font-size:12px; color:var(--ink-soft); }
+.stock-min{ font-size:11px; color:var(--ink-soft); }
+.stock-gap{ font-size:12px; font-weight:700; color:var(--clay); }
+.stock-gap:empty{ display:none; }
+
 .order-alert{
   background:#f7e4df; color:var(--clay); border-radius:8px;
   padding:12px 14px; margin-top:14px; font-size:13px; line-height:1.6;
 }
+.order-alert-head{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  flex-wrap:wrap;
+}
+.order-need{ list-style:none; padding:0; margin:8px 0 0; }
+.order-need li{
+  display:flex; justify-content:space-between; gap:12px;
+  padding:5px 0; border-top:1px dashed rgba(166,91,69,.3);
+}
+.order-amt{ font-family:'JetBrains Mono',monospace; font-weight:700; white-space:nowrap; }
+.order-hint{ font-size:11px; margin-top:8px; opacity:.85; line-height:1.6; }
 .order-bar{
   display:flex; align-items:center; justify-content:space-between; gap:10px;
   width:100%; background:var(--clay); color:#fff; border:none;
@@ -251,6 +299,29 @@ button:disabled{ opacity:.5; cursor:not-allowed; }
   font-family:'JetBrains Mono',monospace; font-size:10px;
   border-radius:8px; padding:1px 6px; margin-left:4px;
 }
+
+/* The section switcher follows the page so it is reachable from anywhere in
+   a long list. backdrop-filter is only a nicety; the solid background behind
+   it is what makes the text readable while rows scroll under. */
+.nav-stick{
+  position:sticky; top:0; z-index:40;
+  background:var(--cream);
+  padding-top:8px; margin:0 -4px 4px; padding-left:4px; padding-right:4px;
+  box-shadow:0 6px 10px -8px rgba(0,0,0,.25);
+}
+@supports (backdrop-filter: blur(6px)){
+  .nav-stick{ background:color-mix(in srgb, var(--cream) 92%, transparent); backdrop-filter:blur(6px); }
+}
+.nav-stick .section-picker{ margin-bottom:8px; }
+.nav-stick .tabs{ margin-bottom:8px; }
+
+/* Touch targets. 44px is the smallest reliably tappable size on a phone, and
+   these are pressed with wet or gloved hands in a kitchen. */
+.tab{ min-height:40px; }
+.btn-secondary,.btn-primary{ min-height:40px; }
+.mini-btn{ min-height:32px; }
+.recipe-card{ cursor:pointer; }
+.recipe-card:active{ transform:scale(.995); }
 
 .section-picker{
   display:flex; align-items:center; gap:10px; width:100%;
@@ -2987,6 +3058,7 @@ function normalizeStock(stock){
       name: String(s.name||'').trim(),
       qty: Number.isFinite(+s.qty) ? +s.qty : 0,
       min: Number.isFinite(+s.min) ? +s.min : 0,
+      par: Number.isFinite(+s.par) ? +s.par : 0,
       unit: String(s.unit||'').trim()
     }));
 }
@@ -3009,6 +3081,222 @@ function totalLowStock(){
   return state.recipes
     .filter(r=>kindOf(r)==='inventory')
     .reduce((n,r)=>n + lowStockCount(r), 0);
+}
+
+
+// ---------------------------------------------------------------------------
+// Inventory
+//
+// The old list could only be changed with ± buttons, one tap per unit, and each
+// tap wrote to the database — counting a shelf of 12 meant twelve writes. It
+// also said only THAT something needed ordering, never how much, and a long
+// list buried the few items that mattered. What follows replaces that with
+// direct entry, a stocktake mode that saves once, and an order list that can be
+// handed to a supplier.
+
+// How much to order. With a 適正在庫 (par level) set we can say the real order
+// quantity; without one we can only state the shortfall against the reorder
+// point, and the wording says which it is rather than inventing a number.
+function orderGap(s){
+  const qty = +s.qty || 0;
+  const min = +s.min || 0;
+  const par = +s.par || 0;
+  if(par > 0 && qty < par) return { amount: Math.round((par - qty) * 100) / 100, kind: 'order' };
+  if(min > 0 && qty <= min) return { amount: Math.round((min - qty) * 100) / 100, kind: 'short' };
+  return { amount: 0, kind: 'none' };
+}
+
+function stockUi(){
+  if(!state.stockUi) state.stockUi = { filter:'all', sort:'low', counting:false, draft:null };
+  return state.stockUi;
+}
+
+function sortedStockRows(rows){
+  const ui = stockUi();
+  // Keep the original position so edits can be written back to the right row.
+  const withIdx = rows.map((s,i)=>({ s, i }));
+  const visible = ui.filter === 'low' ? withIdx.filter(x=>needsOrder(x.s)) : withIdx;
+  if(ui.sort === 'name'){
+    return visible.slice().sort((a,b)=>String(a.s.name).localeCompare(String(b.s.name),'ja'));
+  }
+  // low stock first, then the rest in their own order
+  return visible.slice().sort((a,b)=>{
+    const la = needsOrder(a.s) ? 0 : 1, lb = needsOrder(b.s) ? 0 : 1;
+    return la !== lb ? la - lb : a.i - b.i;
+  });
+}
+
+// Plain text an order can actually be sent with.
+function orderListText(r, rows){
+  const low = rows.filter(needsOrder);
+  if(!low.length) return '';
+  const head = `【発注】${r.title || ''}（${scopeLabel(r.scope)}）  ${new Date().toLocaleDateString('ja-JP')}`;
+  const lines = low.map(s=>{
+    const g = orderGap(s);
+    const u = s.unit || '';
+    const amount = g.amount > 0
+      ? (g.kind === 'order' ? `${g.amount}${u}` : `${g.amount}${u}以上`)
+      : '要確認';
+    return `・${s.name}  ${amount}  （在庫 ${s.qty}${u} / 発注点 ${s.min}${u}${(+s.par||0) ? ` / 適正 ${s.par}${u}` : ''}）`;
+  });
+  return [head, ...lines].join('\n');
+}
+
+function renderStockPanel(r, editable, DK){
+  const rows = normalizeStock(r.stock);
+  const low = rows.filter(needsOrder);
+  const ui = stockUi();
+  const counting = editable && ui.counting;
+  const shown = sortedStockRows(rows);
+
+  const summary = low.length ? `
+    <div class="order-alert">
+      <div class="order-alert-head">
+        <strong>発注が必要: ${low.length}品</strong>
+        <button class="mini-btn" id="copy-order">発注リストをコピー</button>
+      </div>
+      <ul class="order-need">
+        ${low.map(s=>{
+          const g = orderGap(s);
+          const u = esc(s.unit||'');
+          const amt = g.amount > 0
+            ? (g.kind === 'order' ? `${g.amount}${u}` : `${g.amount}${u}以上`)
+            : '—';
+          return `<li><span>${esc(s.name)}</span><span class="order-amt">${amt}</span></li>`;
+        }).join('')}
+      </ul>
+      ${rows.some(s=>needsOrder(s) && !(+s.par||0))
+        ? `<div class="order-hint">「適正在庫」を入れると発注量まで出せます。今は発注点までの不足だけを表示しています。</div>`
+        : ''}
+    </div>` : `<div class="banner success" style="margin-top:14px">発注が必要な品目はありません。</div>`;
+
+  const toolbar = rows.length ? `
+    <div class="stock-tools">
+      <div class="seg">
+        <button class="${ui.filter==='all'?'on':''}" data-stockfilter="all">すべて ${rows.length}</button>
+        <button class="${ui.filter==='low'?'on':''}" data-stockfilter="low">要発注 ${low.length}</button>
+      </div>
+      <div class="seg">
+        <button class="${ui.sort==='low'?'on':''}" data-stocksort="low">要発注が上</button>
+        <button class="${ui.sort==='name'?'on':''}" data-stocksort="name">名前順</button>
+      </div>
+      ${editable ? `<button class="mini-btn ${counting?'on':''}" id="toggle-count">${counting?'棚卸しをやめる':'棚卸し'}</button>` : ''}
+    </div>` : '';
+
+  const body = counting ? `
+    <div class="tip">数を入れて、最後に一度だけ保存します。触っていない品目はそのままです。</div>
+    <ul class="stock-view counting">
+      ${shown.map(({s,i})=>`
+        <li class="${needsOrder(s)?'low':''}">
+          <span class="stock-name">${esc(s.name)}</span>
+          <input class="stock-count" type="number" inputmode="decimal" step="any"
+                 value="${esc(String(s.qty))}" data-countidx="${i}" aria-label="${esc(s.name)}の在庫">
+          <span class="stock-unit">${esc(s.unit||'')}</span>
+          <span class="stock-min">発注点 ${s.min}${esc(s.unit||'')}</span>
+        </li>`).join('') || '<li>表示する品目がありません</li>'}
+    </ul>
+    <div class="row" style="margin-top:12px">
+      <button class="btn-primary" id="save-count">棚卸しを保存</button>
+      <button class="btn-secondary" id="cancel-count">やめる</button>
+      <span id="count-status" style="font-size:12px"></span>
+    </div>
+  ` : `
+    <ul class="stock-view">
+      ${shown.map(({s,i})=>{
+        const g = orderGap(s);
+        const u = esc(s.unit||'');
+        return `
+        <li class="${needsOrder(s)?'low':''}">
+          <span class="stock-name">${esc(s.name)}</span>
+          ${editable
+            ? `<input class="stock-qty-input" type="number" inputmode="decimal" step="any"
+                      value="${esc(String(s.qty))}" data-qtyidx="${i}" aria-label="${esc(s.name)}の在庫">`
+            : `<span class="stock-qty">${s.qty}</span>`}
+          <span class="stock-unit">${u}</span>
+          <span class="stock-min">発注点 ${s.min}${u}${(+s.par||0)?` ・ 適正 ${s.par}${u}`:''}</span>
+          ${needsOrder(s) && g.amount > 0
+            ? `<span class="stock-gap">${g.kind==='order'?'発注':'不足'} ${g.amount}${u}</span>`
+            : '<span class="stock-gap"></span>'}
+        </li>`;
+      }).join('') || '<li>表示する品目がありません</li>'}
+    </ul>
+    ${editable ? '<div class="tip">数量は直接入力できます。入力をやめると自動で保存されます。たくさん数えるときは「棚卸し」を使ってください。</div>' : ''}
+  `;
+
+  return `${summary}<div class="section-label">${esc(DK.stockLabel)}</div>${toolbar}${body}`;
+}
+
+function wireStockPanel(slot, r){
+  slot.querySelectorAll('[data-stockfilter]').forEach(el=>{
+    el.onclick = ()=>{ stockUi().filter = el.dataset.stockfilter; render(); };
+  });
+  slot.querySelectorAll('[data-stocksort]').forEach(el=>{
+    el.onclick = ()=>{ stockUi().sort = el.dataset.stocksort; render(); };
+  });
+
+  const toggle = slot.querySelector('#toggle-count');
+  if(toggle) toggle.onclick = ()=>{ stockUi().counting = !stockUi().counting; render(); };
+  const cancel = slot.querySelector('#cancel-count');
+  if(cancel) cancel.onclick = ()=>{ stockUi().counting = false; render(); };
+
+  const copyBtn = slot.querySelector('#copy-order');
+  if(copyBtn) copyBtn.onclick = async ()=>{
+    const text = orderListText(r, normalizeStock(r.stock));
+    const ok = await copyPlainText(text);
+    copyBtn.textContent = ok ? 'コピーしました' : 'コピーできませんでした';
+    setTimeout(()=>{ copyBtn.textContent = '発注リストをコピー'; }, 1800);
+  };
+
+  // Direct entry. The write is delayed until typing stops so that counting
+  // "12" is one write, not two, and never one per keystroke.
+  let timer = null;
+  const commit = async (idx, value)=>{
+    const rows = normalizeStock(r.stock);
+    if(!rows[idx]) return;
+    const n = parseFloat(value);
+    rows[idx].qty = Number.isFinite(n) ? Math.max(0, n) : 0;
+    try{
+      await saveRecipe(Object.assign({}, r, { stock: rows }));
+    }catch(e){
+      state.banner = { type:'error', text:'更新できませんでした: ' + (e && e.message ? e.message : '') };
+      render();
+    }
+  };
+  slot.querySelectorAll('[data-qtyidx]').forEach(el=>{
+    const idx = parseInt(el.dataset.qtyidx, 10);
+    el.oninput = ()=>{ clearTimeout(timer); timer = setTimeout(()=>commit(idx, el.value), 900); };
+    el.onblur = ()=>{ clearTimeout(timer); commit(idx, el.value); };
+    el.onkeydown = (ev)=>{ if(ev.key === 'Enter'){ ev.preventDefault(); el.blur(); } };
+  });
+
+  const saveCount = slot.querySelector('#save-count');
+  if(saveCount) saveCount.onclick = async ()=>{
+    const status = slot.querySelector('#count-status');
+    const rows = normalizeStock(r.stock);
+    let changed = 0;
+    slot.querySelectorAll('[data-countidx]').forEach(el=>{
+      const i = parseInt(el.dataset.countidx, 10);
+      if(!rows[i]) return;
+      const n = parseFloat(el.value);
+      const v = Number.isFinite(n) ? Math.max(0, n) : 0;
+      if(v !== rows[i].qty){ rows[i].qty = v; changed++; }
+    });
+    if(!changed){
+      if(status){ status.textContent = '変更はありませんでした。'; status.style.color = 'var(--ink-soft)'; }
+      return;
+    }
+    saveCount.disabled = true;
+    if(status){ status.textContent = '保存中…'; status.style.color = 'var(--ink-soft)'; }
+    try{
+      await saveRecipe(Object.assign({}, r, { stock: rows }));   // one write for the whole shelf
+      stockUi().counting = false;
+      state.banner = { type:'success', text:`棚卸しを保存しました（${changed}品目を更新）` };
+      render();
+    }catch(e){
+      if(status){ status.textContent = '保存できませんでした: ' + (e && e.message ? e.message : ''); status.style.color = 'var(--clay)'; }
+      saveCount.disabled = false;
+    }
+  };
 }
 
 function normalizeMenu(menu){
@@ -3453,6 +3741,7 @@ function render(){
         <span>在庫を見る ›</span>
       </button>` : '';
     })()}
+    <div class="nav-stick">
     <button class="section-picker" id="section-picker">
       <span class="sp-label">${esc(state.section==='all' ? 'すべて' : (KINDS[state.section] ? KINDS[state.section].label : 'レシピ'))}</span>
       <span class="sp-count">${state.section==='all' ? state.recipes.length : state.recipes.filter(r=>kindOf(r)===state.section).length}</span>
@@ -3466,6 +3755,7 @@ function render(){
         <button class="tab ${state.view==='photo'?'active':''}" data-nav="photo">写真から読み込む</button>
         <button class="tab ${state.view==='text'?'active':''}" data-nav="text">テキスト・コードから登録</button>
       ` : ''}
+    </div>
     </div>
     ${state.updateReady ? `
       <div class="update-bar">
@@ -5138,33 +5428,7 @@ function renderDetail(){
         <div class="tip">写真をタップすると大きく表示できます。</div>
       ` : ''}
 
-      ${DK.usesStock ? (function(){
-        const rows = normalizeStock(r.stock);
-        const low = rows.filter(needsOrder);
-        return `
-          ${low.length ? `
-            <div class="order-alert">
-              <strong>発注が必要: ${low.length}品</strong>
-              <div>${low.map(s=>esc(s.name)).join('、')}</div>
-            </div>` : `<div class="banner success" style="margin-top:14px">発注が必要な品目はありません。</div>`}
-          <div class="section-label">${esc(DK.stockLabel)}</div>
-          <ul class="stock-view">
-            ${rows.map((s,i)=>`
-              <li class="${needsOrder(s)?'low':''}">
-                <span class="stock-name">${esc(s.name)}</span>
-                <span class="stock-qty">${s.qty}${esc(s.unit||'')}</span>
-                <span class="stock-min">発注点 ${s.min}${esc(s.unit||'')}</span>
-                ${editable ? `
-                  <span class="stock-adj">
-                    <button data-stockadj="${i}" data-delta="-1">−</button>
-                    <button data-stockadj="${i}" data-delta="1">＋</button>
-                  </span>` : ''}
-              </li>
-            `).join('') || '<li>登録がありません</li>'}
-          </ul>
-          ${editable ? `<div class="tip">＋ − でその場で数量を直せます。すぐ保存されます。</div>` : ''}
-        `;
-      })() : ''}
+      ${DK.usesStock ? renderStockPanel(r, editable, DK) : ''}
 
       ${DK.usesMenu ? `
         <div class="section-label">${esc(DK.menuLabel)}</div>
@@ -5225,21 +5489,7 @@ function renderDetail(){
     <div id="menu-make-panel"></div>
     <div id="copy-one-panel"></div>
   `;
-  slot.querySelectorAll('[data-stockadj]').forEach(el=>{
-    el.onclick = async ()=>{
-      const i = parseInt(el.dataset.stockadj,10);
-      const delta = parseInt(el.dataset.delta,10);
-      const rows = normalizeStock(r.stock);
-      if(!rows[i]) return;
-      rows[i].qty = Math.max(0, Math.round((rows[i].qty + delta) * 100) / 100);
-      try{
-        await saveRecipe(Object.assign({}, r, { stock: rows }));
-      }catch(e){
-        state.banner = {type:'error', text:'更新できませんでした: ' + (e && e.message ? e.message : '')};
-        render();
-      }
-    };
-  });
+  wireStockPanel(slot, r);
 
   slot.querySelectorAll('[data-zoom]').forEach(el=>{
     el.onclick = ()=>openPhotoViewer(r.photos || [], parseInt(el.dataset.zoom,10));
@@ -5473,7 +5723,7 @@ function renderForm(){
 
         <label>${esc(K.stockLabel)}</label>
         <div class="stock-head">
-          <span>品目</span><span>在庫</span><span>発注点</span><span>単位</span><span></span>
+          <span>品目</span><span>在庫</span><span>発注点</span><span>適正</span><span>単位</span><span></span>
         </div>
         <div id="stock-list">
           ${(d.stock||[]).map((s,idx)=>`
@@ -5481,6 +5731,7 @@ function renderForm(){
               <input type="text" value="${esc(s.name)}" data-sidx="${idx}" data-sfield="name" class="stock-input" placeholder="品目">
               <input type="number" inputmode="decimal" value="${esc(String(s.qty??0))}" data-sidx="${idx}" data-sfield="qty" class="stock-input">
               <input type="number" inputmode="decimal" value="${esc(String(s.min??0))}" data-sidx="${idx}" data-sfield="min" class="stock-input">
+              <input type="number" inputmode="decimal" value="${esc(String(s.par??0))}" data-sidx="${idx}" data-sfield="par" class="stock-input" title="適正在庫">
               <input type="text" value="${esc(s.unit||'')}" data-sidx="${idx}" data-sfield="unit" class="stock-input" placeholder="kg">
               <button class="remove-btn" data-rmstock="${idx}">✕</button>
             </div>
@@ -5490,7 +5741,7 @@ function renderForm(){
           <button class="btn-secondary" id="add-stock">＋ 品目を追加</button>
           <button class="btn-secondary" id="extract-stock">献立から取り込む</button>
         </div>
-        <div class="tip">在庫が発注点以下になると、一覧に発注アラートが出ます。</div>
+        <div class="tip">在庫が発注点以下になると、一覧に発注アラートが出ます。「適正」は補充後にあるべき量です。入れておくと発注量まで自動で出ます（空欄なら不足量だけ表示）。</div>
         <div id="extract-panel"></div>
       ` : ''}
 
@@ -5554,9 +5805,9 @@ function renderForm(){
   slot.querySelectorAll('.stock-input').forEach(el=>{
     const handler = ()=>{
       const i = parseInt(el.dataset.sidx,10);
-      if(!state.draft.stock[i]) state.draft.stock[i] = {name:'',qty:0,min:0,unit:''};
+      if(!state.draft.stock[i]) state.draft.stock[i] = {name:'',qty:0,min:0,par:0,unit:''};
       const f = el.dataset.sfield;
-      state.draft.stock[i][f] = (f==='qty'||f==='min') ? (parseFloat(el.value)||0) : el.value;
+      state.draft.stock[i][f] = (f==='qty'||f==='min'||f==='par') ? (parseFloat(el.value)||0) : el.value;
     };
     el.oninput = handler;
     el.onchange = handler;
@@ -5572,7 +5823,7 @@ function renderForm(){
   if(addStockBtn) addStockBtn.onclick = ()=>{
     syncFormFields();
     if(!Array.isArray(state.draft.stock)) state.draft.stock = [];
-    state.draft.stock.push({name:'',qty:0,min:0,unit:''});
+    state.draft.stock.push({name:'',qty:0,min:0,par:0,unit:''});
     render();
   };
   const scopeSel = document.getElementById('f-scope');
