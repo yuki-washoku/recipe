@@ -3024,7 +3024,11 @@ const COURSE_PREFIXES = [
   '先付','前菜','八寸','椀物','吸物','汁物','向付','造り','お造り','刺身',
   '焼物','揚物','煮物','炊合せ','炊き合わせ','蒸物','酢の物','強肴','進肴',
   '食事','御飯','ご飯','香の物','水菓子','甘味','デザート',
-  '主菜','副菜','小鉢','漬物','果物'
+  '主菜','副菜','小鉢','漬物','果物',
+  // Labels used by the lunch sheets and the banquet plans. Without these a
+  // line like "日替り　若鶏唐揚げ" could never match the recipe "若鶏唐揚げ".
+  '日替り','日替わり','焼魚','焼き魚','旬菜','サラダ','逸品','かご盛り',
+  '蒸籠蒸し','そば','麺','一品'
 ];
 
 function menuMatchKey(s){
@@ -3036,6 +3040,8 @@ function menuMatchKey(s){
       break;
     }
   }
+  // Everything after the first separator is the garnish, not the dish.
+  t = t.split('／')[0].split('/')[0];
   return t;
 }
 
@@ -4063,6 +4069,16 @@ function renderNotebooks(){
     ` : ''}
 
     <div class="card" style="margin-top:20px">
+      <h3>レシピとの紐づけ</h3>
+      <p class="tip">献立の品目名とレシピ名が一致するものを探して、まとめて紐づけます。紐づくと、献立の品目をタップしてレシピを開けるようになります。取り込みで追加した献立は自動では紐づかないので、レシピを登録したあとにこれを押してください。</p>
+      <div class="row" style="margin-top:10px">
+        <button class="btn-secondary" id="relink-btn">まとめて紐づける</button>
+        <span id="relink-status" style="font-size:12px"></span>
+      </div>
+      <div class="tip">「日替り　若鶏唐揚げ／サラダ菜」のような品目は、頭の区分と「／」より後ろの添えを除いた「若鶏唐揚げ」で照合します。すでに紐づいているものはそのままです。</div>
+    </div>
+
+    <div class="card" style="margin-top:20px">
       <h3>レシピ帳の引き渡し・バックアップ</h3>
       <p class="tip">今開いているレシピ帳のレシピを、写真ごと1つのファイルに書き出します。別の環境（別のFirebase・別のサーバー）へ引き渡すときや、控えを取っておきたいときに使います。</p>
       <div class="row" style="margin-top:10px">
@@ -4226,6 +4242,40 @@ function renderNotebooks(){
 
   if(document.getElementById('invite-list')){
     loadInviteList(nb.id);
+  }
+
+  const relinkBtn = document.getElementById('relink-btn');
+  if(relinkBtn){
+    relinkBtn.onclick = async ()=>{
+      const status = document.getElementById('relink-status');
+      status.style.color = 'var(--ink-soft)';
+      status.textContent = '照合中…';
+      relinkBtn.disabled = true;
+      let changed = 0, links = 0, failed = 0;
+      try{
+        for(const r of state.recipes){
+          if(kindOf(r) === 'recipe') continue;          // recipes have no menu
+          const before = normalizeMenu(r.menu);
+          if(!before.length) continue;
+          const after = autoLinkMenu(before);
+          const added = after.filter((m,i)=> m.recipeId && !before[i].recipeId).length;
+          if(!added) continue;
+          try{
+            await saveRecipe({ ...r, menu: after });
+            changed++; links += added;
+          }catch(e){ failed++; }
+        }
+        status.style.color = failed ? 'var(--clay)' : 'var(--sage)';
+        status.textContent = links
+          ? `${changed}件の献立で ${links}品目を紐づけました。` + (failed ? ` （${failed}件は保存できませんでした）` : '')
+          : '新しく紐づくものはありませんでした。';
+        try{ render(); }catch(e){}
+      }catch(e){
+        status.style.color = 'var(--clay)';
+        status.textContent = '紐づけに失敗しました: ' + (e && e.message ? e.message : '');
+      }
+      relinkBtn.disabled = false;
+    };
   }
 
   const exportNbBtn = document.getElementById('export-nb-btn');
