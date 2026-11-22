@@ -3045,15 +3045,49 @@ function menuMatchKey(s){
   return t;
 }
 
+// The menus are written by hand, so the same dish appears as "ホッケ塩焼き"
+// one week and "ほっけ塩焼" the next. A looser key absorbs the spellings that
+// actually occur: kana script, okurigana, a trailing 焼, and the 真 of 真鯖 /
+// 真鱈. It is only ever used as a fallback, and only when it picks out exactly
+// one recipe, so it cannot quietly link the wrong dish.
+const MATCH_SYNONYMS = [
+  ['カキ', '牡蠣'],
+  ['サワラ', '鰆'],
+  ['サバ', '鯖'],
+  ['カレイ', '鰈']
+];
+
+function looseMatchKey(s){
+  let t = String(s||'');
+  for(const [from, to] of MATCH_SYNONYMS) t = t.split(from).join(to);
+  t = menuMatchKey(t);
+  // katakana to hiragana
+  t = t.replace(/[\u30A1-\u30F6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+  t = t.replace(/^真/, '');        // 真鯖 / 真鱈 are written both ways
+  t = t.replace(/[きげり]$/, '');  // 焼き / 揚げ / 盛り
+  t = t.replace(/焼$/, '');        // 目抜西京 vs 目抜西京焼
+  return t;
+}
+
 // If a dish name matches an existing recipe, link it automatically so the
 // person doesn't have to pick it from the list every time.
 function autoLinkMenu(menu){
+  const recipes = state.recipes.filter(r => kindOf(r) === 'recipe');
   return (menu||[]).map(m=>{
     if(m.recipeId) return m;
     const key = menuMatchKey(m.name);
     if(!key) return m;
-    const hit = state.recipes.find(r =>
-      kindOf(r) === 'recipe' && menuMatchKey(r.title) === key);
+
+    let hit = recipes.find(r => menuMatchKey(r.title) === key);
+
+    if(!hit){
+      const lk = looseMatchKey(m.name);
+      if(lk){
+        const near = recipes.filter(r => looseMatchKey(r.title) === lk);
+        if(near.length === 1) hit = near[0];   // ambiguous: leave it alone
+      }
+    }
+
     return hit ? { name: m.name, recipeId: hit.id } : m;
   });
 }
