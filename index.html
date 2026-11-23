@@ -259,6 +259,15 @@ button:disabled{ opacity:.5; cursor:not-allowed; }
 .stock-view li .stock-min{ grid-column:1 / -1; margin-top:-4px; }
 .stock-view li .stock-gap{ grid-column:1 / -1; }
 .stock-view li.low{ background:#fbf1ee; border-radius:8px; padding:10px 8px; }
+.feed-item{
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  padding:12px 0; border-top:1px dashed var(--line);
+}
+.feed-item .btn-secondary{ flex:0 0 auto; }
+.feed-done{
+  font-size:11px; font-weight:600; color:var(--sage);
+  border:1px solid var(--sage); border-radius:999px; padding:1px 7px; margin-left:4px;
+}
 .stock-name{ font-weight:700; min-width:0; overflow:hidden; text-overflow:ellipsis; }
 .stock-qty{ font-family:'JetBrains Mono',monospace; font-weight:700; font-size:16px; }
 .stock-qty-input,.stock-count{
@@ -4575,20 +4584,8 @@ function renderNotebooks(){
       status.style.color = 'var(--ink-soft)';
       status.textContent = '照合中…';
       relinkBtn.disabled = true;
-      let changed = 0, links = 0, failed = 0;
       try{
-        for(const r of state.recipes){
-          if(kindOf(r) === 'recipe') continue;          // recipes have no menu
-          const before = normalizeMenu(r.menu);
-          if(!before.length) continue;
-          const after = autoLinkMenu(before);
-          const added = after.filter((m,i)=> m.recipeId && !before[i].recipeId).length;
-          if(!added) continue;
-          try{
-            await saveRecipe({ ...r, menu: after });
-            changed++; links += added;
-          }catch(e){ failed++; }
-        }
+        const { changed, links, failed } = await relinkAllMenus();
         status.style.color = failed ? 'var(--clay)' : 'var(--sage)';
         status.textContent = links
           ? `${changed}件の献立で ${links}品目を紐づけました。` + (failed ? ` （${failed}件は保存できませんでした）` : '')
@@ -6072,6 +6069,16 @@ function renderText(){
   const noAnyKey = !getApiKey() && !getGroqKey();
   slot.innerHTML = `
     <div class="card">
+      <h3 style="margin-bottom:6px">配信された献立・レシピを受け取る</h3>
+      <p class="tip" style="margin-top:4px">Claudeが用意したものを、このアプリが直接受け取ります。<strong>コピーや貼り付けは要りません。</strong>通信できるときにボタンを押してください。</p>
+      <div class="row" style="margin-top:10px">
+        <button class="btn-primary" id="feed-refresh">配信リストを読み込む</button>
+        <span id="feed-status" style="font-size:12px"></span>
+      </div>
+      <div id="feed-list" style="margin-top:4px"></div>
+    </div>
+
+    <div class="card" style="margin-top:20px">
       <h3 style="margin-bottom:6px">レシピ取り込みコードから登録</h3>
       <p class="tip" style="margin-top:4px">Claudeのチャットで写真やテキストを読み取ってもらい、発行された「取り込みコード」をここに貼り付けてください。<strong>APIキーは不要・無料</strong>で、複数のレシピをまとめて登録できます。</p>
       <textarea id="import-code" rows="6" placeholder="ここに取り込みコードを貼り付け" class="mono" style="font-size:12px"></textarea>
@@ -6095,7 +6102,122 @@ function renderText(){
   const ta = document.getElementById('paste-text');
   ta.oninput = ()=>{ state.lastPastedText = ta.value; };
   document.getElementById('parse-btn').onclick = extractFromText;
-  document.getElementById('import-btn').onclick = importFromCode;
+  document.getElementById('import-btn').onclick = ()=> importFromCode();
+  wireFeed();
+}
+
+function wireFeed(){
+  const btn    = document.getElementById('feed-refresh');
+  const status = document.getElementById('feed-status');
+  const list   = document.getElementById('feed-list');
+  if(!btn || !status || !list) return;
+
+  const paint = (items)=>{
+    const done = feedDone();
+    if(!items.length){ list.innerHTML = '<p class="tip">今は配信されているものがありません。</p>'; return; }
+    list.innerHTML = items.map((it,i)=>{
+      const isDone = done.includes(it.file);
+      return `<div class="feed-item">
+        <div style="flex:1; min-width:0">
+          <div style="font-weight:600">${esc(it.label||it.file)}${isDone?' <span class="feed-done">受取済</span>':''}</div>
+          ${it.note ? `<div class="tip" style="margin:2px 0 0">${esc(it.note)}</div>` : ''}
+          ${it.count ? `<div class="tip" style="margin:2px 0 0">${esc(String(it.count))}件${it.date?' ・ '+esc(it.date):''}</div>` : ''}
+        </div>
+        <button class="btn-secondary feed-get" data-i="${i}">${isDone?'もう一度受け取る':'受け取る'}</button>
+      </div>`;
+    }).join('');
+
+    list.querySelectorAll('.feed-get').forEach(b=>{
+      b.onclick = async ()=>{
+        const it = items[+b.dataset.i];
+        list.querySelectorAll('.feed-get').forEach(x=> x.disabled = true);
+        status.style.color = 'var(--ink-soft)';
+        status.textContent = '受け取り中…';
+        try{
+          const res = await fetch(feedUrl(it.file), { cache: 'no-store' });
+          if(!res.ok) throw new Error('取得できませんでした（' + res.status + '）');
+          const code = (await res.text()).trim();
+          if(!code) throw new Error('中身が空でした');
+          await importFromCode(code, status, { relink: true, onSaved: ()=> markFeedDone(it.file) });
+        }catch(e){
+          status.style.color = 'var(--clay)';
+          status.textContent = (e && e.message) ? e.message : '受け取りに失敗しました。';
+        }
+        list.querySelectorAll('.feed-get').forEach(x=> x.disabled = false);
+      };
+    });
+  };
+
+  btn.onclick = async ()=>{
+    btn.disabled = true;
+    status.style.color = 'var(--ink-soft)';
+    status.textContent = '確認中…';
+    try{
+      const items = await loadFeed();
+      status.style.color = 'var(--sage)';
+      status.textContent = `${items.length}件の配信があります。`;
+      paint(items);
+    }catch(e){
+      status.style.color = 'var(--clay)';
+      status.textContent = navigator.onLine
+        ? ((e && e.message) ? e.message : '読み込めませんでした。')
+        : 'オフラインでは配信を受け取れません。通信できるときにお試しください。';
+    }
+    btn.disabled = false;
+  };
+}
+
+// Walk every menu (昼定食・おばんざい・会席…) and fill in links to recipes
+// whose names match. Shared by the 管理 screen's button and by the delivery
+// import, which runs it automatically once new recipes have landed.
+async function relinkAllMenus(){
+  let changed = 0, links = 0, failed = 0;
+  for(const r of state.recipes){
+    if(kindOf(r) === 'recipe') continue;          // recipes have no menu
+    const before = normalizeMenu(r.menu);
+    if(!before.length) continue;
+    const after = autoLinkMenu(before);
+    const added = after.filter((m,i)=> m.recipeId && !before[i].recipeId).length;
+    if(!added) continue;
+    try{
+      await saveRecipe({ ...r, menu: after });
+      changed++; links += added;
+    }catch(e){ failed++; }
+  }
+  return { changed, links, failed };
+}
+
+/* ---------------- Delivery (配信) ----------------
+   Import codes published alongside the app under _import/. The phone fetches
+   them itself, so nothing has to be copied by hand — hand-transcribing a
+   20,000-character code was how codes got corrupted before. */
+
+const FEED_DIR  = '_import/';
+const FEED_DONE = 'recipe-feed-done';
+
+function feedDone(){
+  try{ return JSON.parse(localStorage.getItem(FEED_DONE) || '[]'); }
+  catch(e){ return []; }
+}
+function markFeedDone(file){
+  try{
+    const list = feedDone();
+    if(!list.includes(file)){ list.push(file); localStorage.setItem(FEED_DONE, JSON.stringify(list)); }
+  }catch(e){}
+}
+
+// ?probe= is sent straight to the network by the service worker and never
+// stored, so the list is always the one that is actually published.
+function feedUrl(path){
+  return FEED_DIR + path + (path.includes('?') ? '&' : '?') + 'probe=' + Date.now();
+}
+
+async function loadFeed(){
+  const res = await fetch(feedUrl('index.json'), { cache: 'no-store' });
+  if(!res.ok) throw new Error('配信リストが見つかりません（' + res.status + '）');
+  const data = await res.json();
+  if(!Array.isArray(data)) throw new Error('配信リストの形式が違います');
+  return data;
 }
 
 function decodeImportCode(code){
@@ -6108,9 +6230,11 @@ function decodeImportCode(code){
   return decodeURIComponent(escape(atob(b64)));
 }
 
-async function importFromCode(){
-  const raw = (document.getElementById('import-code').value||'').trim();
-  const status = document.getElementById('import-status');
+async function importFromCode(rawOverride, statusEl, opts){
+  const raw = String(rawOverride != null ? rawOverride
+    : (document.getElementById('import-code').value||'')).trim();
+  const status = statusEl || document.getElementById('import-status');
+  opts = opts || {};
   if(!raw){
     status.textContent = 'コードを貼り付けてください。';
     status.style.color = 'var(--clay)';
@@ -6172,11 +6296,24 @@ async function importFromCode(){
     }
   }
 
+  // Menus added earlier do not link themselves to recipes that only arrive
+  // now, so a delivery import closes that gap on the spot.
+  let linkNote = '';
+  if(saved && opts.relink){
+    status.textContent = '献立と紐づけ中…';
+    try{
+      const { links } = await relinkAllMenus();
+      if(links) linkNote = ` 献立の${links}品目をレシピに紐づけました。`;
+    }catch(e){}
+  }
+
+  if(saved && opts.onSaved){ try{ opts.onSaved(saved); }catch(e){} }
+
   if(saved && !failures.length){
-    state.banner = {type:'success', text:`${saved}件のレシピを登録しました。`};
+    state.banner = {type:'success', text:`${saved}件のレシピを登録しました。${linkNote}`};
     setView('list');
   }else if(saved){
-    state.banner = {type:'info', text:`${saved}件を登録しました。${failures.length}件は失敗しました（${esc(failures.join('、'))}）。`};
+    state.banner = {type:'info', text:`${saved}件を登録しました。${failures.length}件は失敗しました（${esc(failures.join('、'))}）。${linkNote}`};
     setView('list');
   }else{
     status.textContent = '登録に失敗しました。通信環境を確認してもう一度お試しください。';

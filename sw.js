@@ -210,6 +210,11 @@ self.addEventListener('fetch', event => {
   // their unique URLs they would accumulate one dead entry per press.
   if (url.searchParams && url.searchParams.has('probe')) return;
 
+  // Delivered import codes under _import/. These change between deployments
+  // and are read once, so a cached copy would hide a newly published batch and
+  // would bloat the cache with codes the app no longer needs.
+  if (url.origin === self.location.origin && url.pathname.includes('/_import/')) return;
+
   // The Firebase config decides which project the app talks to, so a stale
   // copy must never be served ahead of the real one.
   if (url.origin === self.location.origin && url.pathname.endsWith('/firebase-config.json')) {
