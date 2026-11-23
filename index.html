@@ -180,6 +180,43 @@ button:disabled{ opacity:.5; cursor:not-allowed; }
   display:inline-flex; align-items:center; gap:5px;
 }
 .task-chip:active{ background:var(--indigo); color:#fff; }
+.task-chip.on{ background:var(--indigo); color:#fff; }
+
+/* English panel: read at arm's length across a table, so the type is large
+   and the English leads with the Japanese underneath for the cook. */
+.en-panel{
+  margin-top:14px; padding:16px; border-radius:12px;
+  background:#f7f9fc; border:1px solid #dde4ef;
+}
+.en-head{
+  font-size:11px; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--indigo); margin-bottom:8px;
+}
+.en-title{ font-size:20px; font-weight:700; line-height:1.35; }
+.en-desc{ font-size:16px; line-height:1.65; margin:10px 0 0; }
+.en-menu{ margin:12px 0 0; padding-left:0; list-style:none; counter-reset:enc; }
+.en-menu li{
+  counter-increment:enc; padding:10px 0 10px 30px; position:relative;
+  border-top:1px solid #e4eaf4;
+}
+.en-menu li:first-child{ border-top:none; }
+.en-menu li::before{
+  content:counter(enc); position:absolute; left:0; top:12px;
+  font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:700; color:var(--indigo);
+}
+.en-item-en{ font-size:16px; font-weight:700; line-height:1.4; }
+.en-item-desc{ font-size:14px; line-height:1.55; margin-top:2px; }
+.en-item-ja{ font-size:12px; color:var(--ink-soft); margin-top:3px; }
+.en-aller{ margin-top:12px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.en-aller-label{
+  font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--clay);
+}
+.en-chip{
+  font-size:12px; font-weight:700; color:var(--clay);
+  background:#fbf1ee; border:1px solid #e8cdc4; border-radius:999px; padding:3px 9px;
+}
+.en-panel input, .en-panel textarea{ font-size:15px; }
 .task-dur{
   font-family:'JetBrains Mono',monospace; font-size:10px; font-weight:600;
   background:rgba(43,38,32,.10); border-radius:8px; padding:1px 5px;
@@ -950,6 +987,7 @@ const state = {
   history:[],
   selectMode:false,
   selected:[],
+  enOpen:null,
   reconnecting: false,
   updateReady: false,
   listMode: (function(){ try{ return window.localStorage.getItem('listMode') || 'list'; }catch(e){ return 'list'; } })(),
@@ -1653,6 +1691,9 @@ async function saveRecipe(recipe){
     ingredients: recipe.ingredients || [],
     steps: recipe.steps || [],
     notes: recipe.notes || '',
+    // English explanation for overseas guests. Stored on the recipe so it is
+    // there without a signal, and survives every later edit.
+    en: recipe.en || null,
     createdAt: recipe.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     updatedBy: state.user ? state.user.email : ''
@@ -4226,6 +4267,7 @@ async function exportNotebookFile(){
       ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
       steps: Array.isArray(r.steps) ? r.steps : [],
       notes: r.notes || '',
+      en: normalizeEn(r.en),
       photos: Array.isArray(r.photos) ? r.photos : [],
       createdAt: r.createdAt || ''
     });
@@ -4289,6 +4331,7 @@ async function importNotebookFile(file){
         ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
         steps: Array.isArray(r.steps) ? r.steps : [],
         notes: r.notes || '',
+        en: normalizeEn(r.en),
         createdAt: r.createdAt || new Date().toISOString()
       });
       saved++;
@@ -5418,6 +5461,13 @@ function renderDetail(){
       <div class="meta-row">${r.servings?esc(r.servings):''}${r.updatedBy?`<br><span style="font-size:11px">最終更新: ${esc(r.updatedBy)} ・ ${esc(fmtTime(r.updatedAt))}</span>`:''}</div>
       <div class="tags">${(r.tags||[]).map(t=>`<span class="chip">${esc(t)}</span>`).join('')}</div>
 
+      <div class="row" style="margin-top:10px">
+        <button class="${state.enOpen===r.id?'btn-primary':'btn-secondary'}" id="en-toggle">
+          ${state.enOpen===r.id ? '英語の説明を閉じる' : (r.en ? '英語の説明を見せる' : '英語の説明')}
+        </button>
+      </div>
+      ${renderEnPanel(r)}
+
       ${(r.photos||[]).length ? `
         <div class="photo-view">
           ${r.photos.map((p,i)=>`<img src="${p}" alt="" class="photo-full" data-zoom="${i}">`).join('')}
@@ -5487,6 +5537,13 @@ function renderDetail(){
     <div id="copy-one-panel"></div>
   `;
   wireStockPanel(slot, r);
+
+  const enToggle = document.getElementById('en-toggle');
+  if(enToggle) enToggle.onclick = ()=>{
+    state.enOpen = (state.enOpen === r.id) ? null : r.id;
+    render();
+  };
+  wireEnPanel(slot, r);
 
   slot.querySelectorAll('[data-zoom]').forEach(el=>{
     el.onclick = ()=>openPhotoViewer(r.photos || [], parseInt(el.dataset.zoom,10));
@@ -6187,6 +6244,299 @@ async function relinkAllMenus(){
   return { changed, links, failed };
 }
 
+/* ---------------- English for guests (英語の説明) ----------------
+   Overseas guests ask what a dish is. The explanation is written once and
+   stored on the recipe, so it is on the phone in the dining room whether or
+   not there is a signal — a kitchen is the wrong place to wait on an API. */
+
+// A fixed vocabulary keeps the labels consistent and lets the model pick
+// rather than invent. Free-text allergy wording is exactly what a guest
+// cannot afford to have reworded differently every time.
+const EN_ALLERGENS = [
+  'Fish','Shellfish','Crustacean','Squid / Octopus','Egg','Dairy',
+  'Wheat / Gluten','Soy','Sesame','Peanut','Tree nuts','Buckwheat',
+  'Pork','Beef','Chicken','Alcohol'
+];
+
+function normalizeEn(en){
+  if(!en || typeof en !== 'object') return null;
+  const str = v => typeof v === 'string' ? v.trim() : '';
+  const out = {
+    title: str(en.title),
+    desc: str(en.desc),
+    allergens: Array.isArray(en.allergens)
+      ? en.allergens.map(str).filter(a=>EN_ALLERGENS.includes(a)) : [],
+    items: Array.isArray(en.items)
+      ? en.items.map(it=>({ ja: str(it && it.ja), en: str(it && it.en), desc: str(it && it.desc) }))
+                .filter(it=>it.ja || it.en) : [],
+    madeAt: str(en.madeAt) || new Date().toISOString()
+  };
+  if(!out.title && !out.desc && !out.items.length) return null;
+  return out;
+}
+
+const EN_DISH_PROMPT = `You write English explanations of Japanese dishes for overseas guests at a Japanese restaurant.
+
+Rules:
+- Plain, warm, spoken English a server can read aloud. No marketing language.
+- "desc": 2 or 3 short sentences. Say what the dish is, the main ingredient, and how it is cooked. If the Japanese name has no common English equivalent, keep the Japanese word in romaji and explain it.
+- Keep the romanised Japanese name in "title" followed by a plain English name in parentheses, e.g. "Buri Sansho-yaki (grilled yellowtail with sansho pepper)".
+- "allergens": choose ONLY from this exact list, and only what is clearly present in the ingredients: ${JSON.stringify(EN_ALLERGENS)}. Dashi made with bonito counts as Fish. Soy sauce counts as Soy and Wheat / Gluten. Mirin and sake count as Alcohol. Never guess.
+- Do not invent ingredients that are not listed.
+
+Reply with JSON only: {"title": "...", "desc": "...", "allergens": ["..."]}`;
+
+const EN_MENU_PROMPT = `You write English explanations of a Japanese restaurant's set menu for overseas guests.
+
+Rules:
+- Plain, warm, spoken English. No marketing language.
+- For each course line, give "en" (a short English name, romaji kept where there is no equivalent) and "desc" (ONE short sentence on what it is).
+- Keep the courses in the order given and return one entry per line, with "ja" copied exactly as given.
+- Do not invent dishes or ingredients.
+
+Reply with JSON only: {"title": "...", "items": [{"ja": "...", "en": "...", "desc": "..."}]}`;
+
+function enDishInput(r){
+  const L = [];
+  L.push('料理名: ' + (r.title||''));
+  if(r.servings) L.push('分量: ' + r.servings);
+  if((r.tags||[]).length) L.push('区分: ' + r.tags.join('、'));
+  const ing = (r.ingredients||[]).filter(i=>i && i.name);
+  if(ing.length) L.push('材料: ' + ing.map(i=>i.name + (i.amount? '（'+i.amount+'）':'')).join('、'));
+  const steps = (r.steps||[]).filter(Boolean);
+  if(steps.length) L.push('作り方: ' + steps.join(' / '));
+  return L.join('\n');
+}
+
+function enMenuInput(r){
+  const L = ['献立名: ' + (r.title||'')];
+  if(r.servings) L.push('日付・回: ' + r.servings);
+  L.push('品目:');
+  (r.menu||[]).forEach(m=>{ if(m && m.name) L.push('- ' + m.name); });
+  return L.join('\n');
+}
+
+// Dish names also appear as menu lines, so a dish that already has its own
+// English text can fill a menu line without asking the model again.
+function enFromLinkedRecipe(name, recipeId){
+  if(recipeId){
+    const hit = state.recipes.find(x=>x.id===recipeId);
+    if(hit && hit.en && (hit.en.title || hit.en.desc)) return hit.en;
+  }
+  const key = menuMatchKey(name);
+  if(!key) return null;
+  const hit = state.recipes.find(x=>kindOf(x)==='recipe' && x.en && menuMatchKey(x.title)===key);
+  return hit ? hit.en : null;
+}
+
+async function askForJson(system, user){
+  if(getApiKey()){
+    try{
+      let t = String(await callClaudeRaw(system, user)).replace(/```json|```/g,'').trim();
+      const a = t.indexOf('{'), b = t.lastIndexOf('}');
+      if(a>-1 && b>a) t = t.slice(a, b+1);
+      return JSON.parse(t);
+    }catch(e){ /* fall through to the free model */ }
+  }
+  let lastErr = null;
+  for(const model of GROQ_TEXT_MODELS){
+    try{
+      const content = await callGroq({
+        model, temperature: 0.2, max_tokens: 2500,
+        response_format: { type: 'json_object' },
+        messages: [{ role:'system', content: system }, { role:'user', content: user }]
+      });
+      let t = String(content).replace(/```json|```/g,'').trim();
+      const a = t.indexOf('{'), b = t.lastIndexOf('}');
+      if(a>-1 && b>a) t = t.slice(a, b+1);
+      return JSON.parse(t);
+    }catch(e){ lastErr = e; }
+  }
+  throw lastErr || new Error('英語の説明を作れませんでした。');
+}
+
+async function buildEnglish(r){
+  const isMenu = kindConf(r).usesMenu;
+  if(isMenu){
+    const lines = (r.menu||[]).filter(m=>m && m.name);
+    // Reuse what is already written before spending a call.
+    const known = lines.map(m=>{
+      const e = enFromLinkedRecipe(m.name, m.recipeId);
+      return e ? { ja: m.name, en: e.title, desc: e.desc } : null;
+    });
+    if(known.every(Boolean) && known.length){
+      return normalizeEn({ title: r.title, items: known });
+    }
+    const raw = await askForJson(EN_MENU_PROMPT, enMenuInput(r));
+    const items = Array.isArray(raw.items) ? raw.items : [];
+    // Keep the app's own order and names; only take the English from the model.
+    const merged = lines.map((m,i)=>{
+      const hit = items.find(x=> x && String(x.ja||'').trim() === m.name) || items[i] || {};
+      return { ja: m.name, en: hit.en || '', desc: hit.desc || '' };
+    });
+    return normalizeEn({ title: raw.title || r.title, items: merged });
+  }
+  const raw = await askForJson(EN_DISH_PROMPT, enDishInput(r));
+  return normalizeEn({ title: raw.title, desc: raw.desc, allergens: raw.allergens });
+}
+
+function renderEnPanel(r){
+  const en = normalizeEn(r.en);
+  const open = state.enOpen === r.id;
+  if(!open) return '';
+  const noKey = !getApiKey() && !getGroqKey();
+  if(!en){
+    return `<div class="en-panel">
+      <div class="en-head">English</div>
+      <p class="tip" style="margin-top:0">この${kindConf(r).usesMenu?'献立':'料理'}の英語の説明はまだありません。${noKey?'<br><strong>作成にはAPIキーの登録が必要です（「⚙ 設定」から無料のキーを登録できます）。</strong>':'<br>一度作れば、圏外でも表示できます。'}</p>
+      <div class="row">
+        <button class="btn-primary" id="en-make" ${noKey?'disabled':''}>英語の説明をつくる</button>
+        <span id="en-status" style="font-size:12px"></span>
+      </div>
+    </div>`;
+  }
+  const body = en.items.length
+    ? `<ol class="en-menu">${en.items.map(it=>`
+        <li>
+          <div class="en-item-en">${esc(it.en || it.ja)}</div>
+          ${it.desc ? `<div class="en-item-desc">${esc(it.desc)}</div>` : ''}
+          <div class="en-item-ja">${esc(it.ja)}</div>
+        </li>`).join('')}</ol>`
+    : `<p class="en-desc">${esc(en.desc)}</p>
+       ${en.allergens.length ? `<div class="en-aller">
+          <span class="en-aller-label">Contains</span>
+          ${en.allergens.map(a=>`<span class="en-chip">${esc(a)}</span>`).join('')}
+        </div>` : ''}`;
+
+  return `<div class="en-panel">
+    <div class="en-head">English</div>
+    <div class="en-title">${esc(en.title || r.title)}</div>
+    ${body}
+    <div class="row" style="margin-top:14px; flex-wrap:wrap">
+      <button class="mini-btn" id="en-edit">文章を直す</button>
+      <button class="mini-btn" id="en-redo" ${noKey?'disabled':''}>作り直す</button>
+      <button class="mini-btn" id="en-copy">文章をコピー</button>
+      <span id="en-status" style="font-size:12px"></span>
+    </div>
+    <div id="en-edit-slot"></div>
+  </div>`;
+}
+
+function enPlainText(r){
+  const en = normalizeEn(r.en); if(!en) return '';
+  const L = [en.title || r.title, ''];
+  if(en.desc) L.push(en.desc);
+  en.items.forEach((it,i)=>{
+    L.push(`${i+1}. ${it.en || it.ja}`);
+    if(it.desc) L.push(`   ${it.desc}`);
+  });
+  if(en.allergens.length) L.push('', 'Contains: ' + en.allergens.join(', '));
+  return L.join('\n');
+}
+
+function wireEnPanel(slot, r){
+  const status = ()=> document.getElementById('en-status');
+  const make = async (btn)=>{
+    const st = status();
+    if(btn) btn.disabled = true;
+    if(st){ st.style.color = 'var(--ink-soft)'; st.textContent = '作成中…'; }
+    try{
+      const en = await buildEnglish(r);
+      if(!en) throw new Error('説明を受け取れませんでした。');
+      await saveRecipe({ ...r, en });
+      state.enOpen = r.id;
+      render();
+    }catch(e){
+      if(btn) btn.disabled = false;
+      const s = status();
+      if(s){ s.style.color = 'var(--clay)'; s.textContent = (e && e.message) ? e.message : '作成に失敗しました。'; }
+    }
+  };
+
+  const mk = document.getElementById('en-make');
+  if(mk) mk.onclick = ()=> make(mk);
+  const redo = document.getElementById('en-redo');
+  if(redo) redo.onclick = ()=> make(redo);
+
+  const copy = document.getElementById('en-copy');
+  if(copy) copy.onclick = async ()=>{
+    const st = status();
+    try{
+      await navigator.clipboard.writeText(enPlainText(r));
+      if(st){ st.style.color = 'var(--sage)'; st.textContent = 'コピーしました。'; }
+    }catch(e){
+      if(st){ st.style.color = 'var(--clay)'; st.textContent = 'コピーできませんでした。'; }
+    }
+  };
+
+  const edit = document.getElementById('en-edit');
+  if(edit) edit.onclick = ()=>{
+    const en = normalizeEn(r.en) || { title:'', desc:'', allergens:[], items:[] };
+    const sl = document.getElementById('en-edit-slot');
+    if(!sl) return;
+    sl.innerHTML = `
+      <div style="margin-top:14px; border-top:1px dashed var(--line); padding-top:12px">
+        <label style="margin-top:0">English name</label>
+        <input id="en-f-title" value="${esc(en.title)}">
+        ${en.items.length ? `
+          ${en.items.map((it,i)=>`
+            <label>${i+1}. ${esc(it.ja)}</label>
+            <input data-enitem="${i}" data-f="en" value="${esc(it.en)}" placeholder="English name">
+            <input data-enitem="${i}" data-f="desc" value="${esc(it.desc)}" placeholder="One sentence">
+          `).join('')}
+        ` : `
+          <label>Description</label>
+          <textarea id="en-f-desc" rows="4">${esc(en.desc)}</textarea>
+          <label>Contains</label>
+          <div class="row" style="flex-wrap:wrap; gap:6px">
+            ${EN_ALLERGENS.map(a=>`<button class="task-chip${en.allergens.includes(a)?' on':''}" data-enaller="${esc(a)}">${esc(a)}</button>`).join('')}
+          </div>
+        `}
+        <div class="row" style="margin-top:12px">
+          <button class="btn-primary" id="en-save">保存</button>
+          <button class="btn-secondary" id="en-cancel">やめる</button>
+          <span id="en-save-status" style="font-size:12px"></span>
+        </div>
+      </div>`;
+
+    const picked = new Set(en.allergens);
+    sl.querySelectorAll('[data-enaller]').forEach(b=>{
+      b.onclick = ()=>{
+        const a = b.dataset.enaller;
+        if(picked.has(a)){ picked.delete(a); b.classList.remove('on'); }
+        else { picked.add(a); b.classList.add('on'); }
+      };
+    });
+
+    document.getElementById('en-cancel').onclick = ()=>{ sl.innerHTML = ''; };
+    document.getElementById('en-save').onclick = async ()=>{
+      const st = document.getElementById('en-save-status');
+      const next = {
+        title: (document.getElementById('en-f-title')||{}).value || '',
+        desc: (document.getElementById('en-f-desc')||{}).value || '',
+        allergens: [...picked],
+        items: en.items.map((it,i)=>({
+          ja: it.ja,
+          en: (sl.querySelector(`[data-enitem="${i}"][data-f="en"]`)||{}).value || '',
+          desc: (sl.querySelector(`[data-enitem="${i}"][data-f="desc"]`)||{}).value || ''
+        })),
+        madeAt: en.madeAt
+      };
+      st.style.color = 'var(--ink-soft)';
+      st.textContent = '保存中…';
+      try{
+        await saveRecipe({ ...r, en: normalizeEn(next) });
+        state.enOpen = r.id;
+        render();
+      }catch(e){
+        st.style.color = 'var(--clay)';
+        st.textContent = '保存できませんでした。';
+      }
+    };
+    sl.scrollIntoView({ behavior:'smooth', block:'nearest' });
+  };
+}
+
 /* ---------------- Delivery (配信) ----------------
    Import codes published alongside the app under _import/. The phone fetches
    them itself, so nothing has to be copied by hand — hand-transcribing a
@@ -6253,7 +6603,7 @@ async function importFromCode(rawOverride, statusEl, opts){
   // Update-style code: match existing recipes by title and patch fields,
   // rather than adding new ones.
   if(parsed && !Array.isArray(parsed) && parsed.op === 'update' && Array.isArray(parsed.items)){
-    return applyUpdateCode(parsed.items, status);
+    return applyUpdateCode(parsed.items, status, opts);
   }
 
   const items = Array.isArray(parsed) ? parsed : [parsed];
@@ -6286,6 +6636,7 @@ async function importFromCode(rawOverride, statusEl, opts){
         : [],
       steps: Array.isArray(r.steps) ? r.steps.filter(s=>typeof s === 'string') : [],
       notes: r.notes || '',
+      en: normalizeEn(r.en),
       createdAt: r.createdAt || new Date().toISOString()
     };
     try{
@@ -6322,7 +6673,8 @@ async function importFromCode(rawOverride, statusEl, opts){
 }
 
 // Patch existing recipes (matched by title) without creating duplicates.
-async function applyUpdateCode(items, status){
+async function applyUpdateCode(items, status, opts){
+  opts = opts || {};
   status.textContent = '照合中…';
   status.style.color = 'var(--ink-soft)';
 
@@ -6338,6 +6690,7 @@ async function applyUpdateCode(items, status){
     const patched = Object.assign({}, target);
     if(typeof it.reading === 'string') patched.reading = it.reading;
     if(typeof it.newTitle === 'string' && it.newTitle.trim()) patched.title = it.newTitle;
+    if(it.en){ const en = normalizeEn(it.en); if(en) patched.en = en; }
 
     try{
       await saveRecipe(patched);
@@ -6346,6 +6699,8 @@ async function applyUpdateCode(items, status){
       notFound.push(it.title + '（保存失敗）');
     }
   }
+
+  if(updated && opts.onSaved){ try{ opts.onSaved(updated); }catch(e){} }
 
   if(updated && !notFound.length){
     state.banner = {type:'success', text:`${updated}件のレシピを更新しました。`};
