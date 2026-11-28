@@ -2741,6 +2741,18 @@ const KINDS = {
     stepPlaceholder: '',
     checkable: false
   },
+  idea: {
+    label: 'レシピ考案',
+    chip: '考案',
+    servingsLabel: '想定の分量・用途',
+    servingsPlaceholder: '例: 40人前 / 昼定食の日替り',
+    pairsLabel: '材料',
+    pairName: '材料名',
+    pairAmount: '分量',
+    stepsLabel: '作り方',
+    stepPlaceholder: '',
+    checkable: false
+  },
   people: {
     label: 'メンバー表',
     chip: '人',
@@ -3457,7 +3469,7 @@ function setView(v){ state.view = v; state.banner = null; render(); }
 const SECTION_GROUPS = [
   { title:'献立', keys:['lunch','hirukaiseki','obanzai','kaiseki','alacarte','makanai'] },
   { title:'仕込み・段取り', keys:['tasklib','schedule','inventory','order','routine'] },
-  { title:'記録・その他', keys:['recipe','people','mistake'] }
+  { title:'記録・その他', keys:['recipe','idea','people','mistake'] }
 ];
 
 function openSectionPicker(){
