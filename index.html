@@ -296,6 +296,11 @@ button:disabled{ opacity:.5; cursor:not-allowed; }
 .stock-view li .stock-min{ grid-column:1 / -1; margin-top:-4px; }
 .stock-view li .stock-gap{ grid-column:1 / -1; }
 .stock-view li.low{ background:#fbf1ee; border-radius:8px; padding:10px 8px; }
+.feed-auto{
+  display:flex; align-items:center; gap:8px; margin-top:12px;
+  font-size:13px; color:var(--ink-soft);
+}
+.feed-auto input{ width:18px; height:18px; margin:0; flex:0 0 auto; }
 .feed-item{
   display:flex; align-items:center; gap:12px; flex-wrap:wrap;
   padding:12px 0; border-top:1px dashed var(--line);
@@ -1424,6 +1429,8 @@ function subscribeRecipes(){
     sortRecipes(list);
     state.recipes = list;
     state.ready = true;
+    // Recipes are in, so titles can be matched and menus relinked.
+    setTimeout(autoApplyFeed, 0);
     // A sync arriving mid-search would otherwise rebuild the search box and
     // interrupt typing. Refresh just the results in that case.
     const si = document.getElementById('search-input');
@@ -6141,9 +6148,14 @@ function renderText(){
       <h3 style="margin-bottom:6px">配信された献立・レシピを受け取る</h3>
       <p class="tip" style="margin-top:4px">Claudeが用意したものを、このアプリが直接受け取ります。<strong>コピーや貼り付けは要りません。</strong>通信できるときにボタンを押してください。</p>
       <div class="row" style="margin-top:10px">
-        <button class="btn-primary" id="feed-refresh">配信リストを読み込む</button>
+        <button class="btn-primary" id="feed-all">まだ受け取っていない分をすべて受け取る</button>
+        <button class="btn-secondary" id="feed-refresh">一覧を見る</button>
         <span id="feed-status" style="font-size:12px"></span>
       </div>
+      <label class="feed-auto">
+        <input type="checkbox" id="feed-auto" ${feedAutoOn()?'checked':''}>
+        <span>アプリを開いたときに自動で受け取る</span>
+      </label>
       <div id="feed-list" style="margin-top:4px"></div>
     </div>
 
@@ -6215,6 +6227,46 @@ function wireFeed(){
         list.querySelectorAll('.feed-get').forEach(x=> x.disabled = false);
       };
     });
+  };
+
+  const auto = document.getElementById('feed-auto');
+  if(auto) auto.onchange = ()=>{
+    setFeedAuto(auto.checked);
+    status.style.color = 'var(--ink-soft)';
+    status.textContent = auto.checked
+      ? '次からは開いたときに自動で受け取ります。'
+      : '自動では受け取りません。';
+  };
+
+  const allBtn = document.getElementById('feed-all');
+  if(allBtn) allBtn.onclick = async ()=>{
+    allBtn.disabled = true; btn.disabled = true;
+    status.style.color = 'var(--ink-soft)';
+    status.textContent = '確認中…';
+    try{
+      const r = await applyAllFeed((it, i, n)=>{
+        status.textContent = `${i}/${n} ${it.label||it.file} を受け取り中…`;
+      });
+      if(!r.pending){
+        status.style.color = 'var(--sage)';
+        status.textContent = 'すべて受け取り済みです。新しい配信はありません。';
+      }else if(r.failed.length){
+        state.banner = { type:'info',
+          text:`${r.entries}件を登録しました。${r.failed.length}件は受け取れませんでした（${esc(r.failed.join('、'))}）。` };
+        render();
+      }else{
+        const linkNote = r.links ? ` 献立の${r.links}品目を紐づけました。` : '';
+        state.banner = { type:'success',
+          text:`配信${r.files}件、あわせて${r.entries}件を登録しました。${linkNote}` };
+        setView('list');
+      }
+    }catch(e){
+      status.style.color = 'var(--clay)';
+      status.textContent = navigator.onLine
+        ? ((e && e.message) ? e.message : '受け取れませんでした。')
+        : 'オフラインでは受け取れません。通信できるときにお試しください。';
+    }
+    allBtn.disabled = false; btn.disabled = false;
   };
 
   btn.onclick = async ()=>{
@@ -6557,15 +6609,40 @@ function wireEnPanel(slot, r){
 const FEED_DIR  = '_import/';
 const FEED_DONE = 'recipe-feed-done';
 
+const FEED_AUTO = 'recipe-feed-auto';
+
+// What has already been taken is recorded ON THE NOTEBOOK, not in this
+// browser. The phone and the PC share one notebook, so a per-browser record
+// would let the same batch land twice and leave duplicate recipes behind -
+// which has already happened once in this book and is tedious to undo.
+// The old localStorage list is still read, so nothing taken before is lost.
 function feedDone(){
-  try{ return JSON.parse(localStorage.getItem(FEED_DONE) || '[]'); }
-  catch(e){ return []; }
+  const nb = currentNotebook();
+  const shared = (nb && Array.isArray(nb.feedApplied)) ? nb.feedApplied : [];
+  let local = [];
+  try{ local = JSON.parse(localStorage.getItem(FEED_DONE) || '[]'); }catch(e){}
+  return [...new Set([...shared, ...local])];
 }
-function markFeedDone(file){
+
+async function markFeedDone(file){
   try{
-    const list = feedDone();
+    const list = JSON.parse(localStorage.getItem(FEED_DONE) || '[]');
     if(!list.includes(file)){ list.push(file); localStorage.setItem(FEED_DONE, JSON.stringify(list)); }
   }catch(e){}
+  const nb = currentNotebook();
+  if(!nb) return;
+  try{
+    await writeLocalFirst(updateDoc(doc(db,'notebooks',nb.id), { feedApplied: arrayUnion(file) }));
+    if(!Array.isArray(nb.feedApplied)) nb.feedApplied = [];
+    if(!nb.feedApplied.includes(file)) nb.feedApplied.push(file);
+  }catch(e){ /* the local record still stops a repeat on this device */ }
+}
+
+function feedAutoOn(){
+  try{ return localStorage.getItem(FEED_AUTO) !== '0'; }catch(e){ return true; }
+}
+function setFeedAuto(on){
+  try{ localStorage.setItem(FEED_AUTO, on ? '1' : '0'); }catch(e){}
 }
 
 // ?probe= is sent straight to the network by the service worker and never
@@ -6580,6 +6657,110 @@ async function loadFeed(){
   const data = await res.json();
   if(!Array.isArray(data)) throw new Error('配信リストの形式が違います');
   return data;
+}
+
+// Take one delivered batch: fetch it, import it, record it. Returns how many
+// entries landed. Throws on a network or decode failure so a run over several
+// batches can stop rather than silently skip one.
+async function applyFeedItem(it){
+  const res = await fetch(feedUrl(it.file), { cache: 'no-store' });
+  if(!res.ok) throw new Error(it.label + '：取得できませんでした（' + res.status + '）');
+  const code = (await res.text()).trim();
+  if(!code) throw new Error(it.label + '：中身が空でした');
+
+  let parsed;
+  try{ parsed = JSON.parse(decodeImportCode(code)); }
+  catch(e){ throw new Error(it.label + '：コードを読み取れませんでした'); }
+
+  if(parsed && !Array.isArray(parsed) && parsed.op === 'update' && Array.isArray(parsed.items)){
+    let n = 0;
+    for(const item of parsed.items){
+      if(!item || !item.title) continue;
+      const norm = x => String(x||'').replace(/[\s　]/g,'').toLowerCase();
+      const target = state.recipes.find(r => norm(r.title) === norm(item.title));
+      if(!target) continue;
+      const patched = Object.assign({}, target);
+      if(typeof item.reading === 'string') patched.reading = item.reading;
+      if(typeof item.newTitle === 'string' && item.newTitle.trim()) patched.title = item.newTitle;
+      if(item.en){ const en = normalizeEn(item.en); if(en) patched.en = en; }
+      try{ await saveRecipe(patched); n++; }catch(e){}
+    }
+    await markFeedDone(it.file);
+    return n;
+  }
+
+  const items = (Array.isArray(parsed) ? parsed : [parsed])
+    .filter(r => r && typeof r.title === 'string' && r.title.trim());
+  let n = 0;
+  for(const r of items){
+    try{
+      await saveRecipe({
+        id: r.id || uid(),
+        kind: r.kind || 'recipe',
+        menu: normalizeMenu(r.menu),
+        stock: normalizeStock(r.stock),
+        scope: r.scope || '',
+        title: r.title || '',
+        reading: r.reading || '',
+        photos: Array.isArray(r.photos) ? r.photos : [],
+        servings: r.servings || '',
+        tags: Array.isArray(r.tags) ? r.tags : [],
+        ingredients: Array.isArray(r.ingredients)
+          ? r.ingredients.map(i=>({ name: (i && i.name) || '', amount: (i && i.amount) || '' })) : [],
+        steps: Array.isArray(r.steps) ? r.steps.filter(x=>typeof x === 'string') : [],
+        notes: r.notes || '',
+        en: normalizeEn(r.en),
+        createdAt: r.createdAt || new Date().toISOString()
+      });
+      n++;
+    }catch(e){}
+  }
+  await markFeedDone(it.file);
+  return n;
+}
+
+// Take everything not taken yet, oldest entry last so earlier batches land
+// first: the English texts and the relink both need their recipes present.
+async function applyAllFeed(onStep){
+  const feed = await loadFeed();
+  const done = feedDone();
+  const pending = feed.filter(it => !done.includes(it.file)).reverse();
+  let files = 0, entries = 0;
+  const failed = [];
+  for(const it of pending){
+    if(onStep) onStep(it, files + 1, pending.length);
+    try{
+      entries += await applyFeedItem(it);
+      files++;
+    }catch(e){ failed.push((e && e.message) ? e.message : it.label); }
+  }
+  let links = 0;
+  if(entries){
+    try{ links = (await relinkAllMenus()).links; }catch(e){}
+  }
+  return { files, entries, links, failed, pending: pending.length };
+}
+
+// On launch, bring the book up to date without being asked. The person said
+// they would rather not press anything; the shared record above is what makes
+// that safe to do on two devices at once.
+let feedAutoRan = false;
+async function autoApplyFeed(){
+  if(feedAutoRan) return;
+  if(!feedAutoOn()) return;
+  if(!navigator.onLine) return;
+  if(!state.ready || !state.currentNotebookId) return;
+  if(!canEdit()) return;
+  feedAutoRan = true;
+  try{
+    const r = await applyAllFeed();
+    if(r.entries){
+      const linkNote = r.links ? ` 献立の${r.links}品目を紐づけました。` : '';
+      state.banner = { type:'success',
+        text:`新しい配信を${r.files}件うけとり、${r.entries}件を登録しました。${linkNote}` };
+      render();
+    }
+  }catch(e){ /* offline or nothing published: nothing to say */ }
 }
 
 function decodeImportCode(code){
